@@ -86,6 +86,7 @@
     <Compile Include="Models\SitemapManager.cs" />
     <Compile Include="Models\SitemapManagerForm.cs" />
     <Compile Include="Models\SitemapManagerConfiguration.cs" />
+    <Compile Include="Models\SitemapPageManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="App_Config\Include\SitemapXML.config">

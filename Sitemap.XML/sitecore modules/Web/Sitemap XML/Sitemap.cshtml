@@ -1,20 +1,26 @@
 ﻿@inherits System.Web.Mvc.WebViewPage
+@using System
+@using System.Linq
 @using Sitecore.Data.Items
 @using Sitecore.Links
 @using Sitemap.XML
 @using Sitemap.XML.Models
-@using SM = Sitemap.XML.Models.SitemapManager;
+@using SM = Sitemap.XML.Models.SitemapPageManager;
 @{
+    var configuration = new SitemapManagerConfiguration(Sitecore.Context.Site.Name);
     if (!SM.SitemapDefinitionExists())
     {
         return;
     }
-    var root = Sitecore.Context.Database.GetItem(Sitecore.Context.Site.StartPath);
+    Item root;
+
+    var rootPath = new SitemapManager(configuration).GetRootPath(out root);
     var count = 0;
     <div class="sitemap">
         <ul>
-            <li><a href="@SitemapItem.GetItemUrl(root, Sitecore.Context.Site)">@root[Constants.SeoSettings.Title]</a>
-            @RecursiveSitemap(root, count)
+            <li>
+                <a href="@SitemapItem.GetItemUrl(root, Sitecore.Context.Site)">@root[Constants.SeoSettings.Title]</a>
+                @RecursiveSitemap(root, count)
             </li>
         </ul>
     </div>
@@ -39,25 +45,57 @@
     foreach (Item child in childList)
     {
         count++;
-        var localChild = child;
+        if (child != null)
+        {
+            var localChild = child;
+
+            if (SM.IsEnabledTemplate(localChild) && !SM.IsExcludedItem(localChild))
+            {
+                @:<li>
+                    <a href="@( SM.IsChildUnderSharedLocation(localChild) ?
+                                                SitemapItem.GetSharedItemUrl(localChild, Sitecore.Context.Site)
+                                                : SitemapItem.GetItemUrl(localChild, Sitecore.Context.Site))">
+                        @if (String.IsNullOrWhiteSpace(localChild[Constants.SeoSettings.Title]))
+                        {
+                            @localChild.DisplayName
+                        }
+                        else
+                        {
+                            @localChild[Constants.SeoSettings.Title]
+                        }
+
+                    </a>
+            }
+
+            if (SM.IsChildWildCardEnabled() && SM.IsChildrenWildcard(localChild))
+            {
+                var mappings = SM.GetWildCardMapping(localChild);
+                if (mappings != null && mappings.Any())
+                {
+                    foreach (var mapping in mappings)
+                    {
+                         @RecursiveSitemap(mapping, count)
+                    }
+                }
+
+            }
+
+            if (SM.IsShared(localChild))
+            {
+                localChild = SM.GetContentLocation(localChild);
+            }
+
+
+
+            //checks for nullable as call above may make it nullable
+            if (localChild != null && localChild.Children.Count != 0)
+            {
+                @RecursiveSitemap(localChild, count)
+        }
         if (SM.IsEnabledTemplate(localChild) && !SM.IsExcludedItem(localChild))
         {
-            @:<li>
-            <a href="@(SM.IsChildUnderSharedLocation(localChild) ? 
-                SitemapItem.GetSharedItemUrl(localChild, Sitecore.Context.Site) 
-                : SitemapItem.GetItemUrl(localChild, Sitecore.Context.Site))">@localChild[Constants.SeoSettings.Title]</a>
-        }
-        if (SM.IsShared(localChild))
-        {
-            localChild = SM.GetContentLocation(localChild);
-        }
-        if (localChild.Children.Count != 0)
-        {
-            @RecursiveSitemap(localChild, count)
-        }
-        if (SM.IsEnabledTemplate(localChild) && !SM.IsExcludedItem(localChild))
-        {
-            @:</li>
+                @:</li>
+            }
         }
     }
     if (SM.ContainsItemsToShow(childList))

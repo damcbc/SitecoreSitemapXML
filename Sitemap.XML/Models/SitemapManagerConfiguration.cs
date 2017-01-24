@@ -32,6 +32,8 @@ using System.Linq;
 using System.Collections.Generic;
 using Sitecore;
 using Sitecore.Sites;
+using Sitecore.Data.Fields;
+using Sitecore.Links;
 
 namespace Sitemap.XML.Models
 {
@@ -86,6 +88,10 @@ namespace Sitemap.XML.Models
             }
         }
 
+        public bool HasWildcardItems => GetValueByName("hasWildcardItems") == "true";
+
+        public string WildcardRoutesPath => GetValueByName("wildcardRoutesPath");
+
         public bool GenerateRobotsFile
         {
             get
@@ -115,6 +121,15 @@ namespace Sitemap.XML.Models
             {
                 var production = GetValueByName("productionEnvironment");
                 return !string.IsNullOrEmpty(production) && (production.ToLower() == "true" || production == "1");
+            }
+        }
+
+        public string CustomStartPath
+        {
+            get
+            {
+                return GetCustomPathItem(Constants.WebsiteDefinition.CustomStartPath);               
+               
             }
         }
 
@@ -151,6 +166,34 @@ namespace Sitemap.XML.Models
                 if (configItem != null)
                 {
                     result = configItem[name];
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// It is specified by a field on the configuration item. This overrides the default site start path for a custom item on the content tree
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns></returns>
+        private  string GetCustomPathItem(string item)
+        {
+            string result = string.Empty;
+
+            Database db = Factory.GetDatabase(WorkingDatabase);
+            if (db != null)
+            {
+                
+                var configItem = db.Items[SitemapConfigurationItemPath];
+                if (configItem != null)
+                {
+                    var reference = (ReferenceField)configItem.Fields[Constants.WebsiteDefinition.CustomStartPath];
+                    if(reference != null && reference.TargetItem != null)
+                    {
+                        //return LinkManager.GetItemUrl(reference.TargetItem, new UrlOptions { Site = SiteContext.Current, SiteResolving = false, LanguageEmbedding = LanguageEmbedding.Never });
+                        return reference.TargetItem.Paths.FullPath;
+                    }
                 }
             }
 

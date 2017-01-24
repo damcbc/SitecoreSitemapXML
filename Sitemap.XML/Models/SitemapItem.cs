@@ -57,7 +57,7 @@ namespace Sitemap.XML.Models
             }
             else
             {
-                var contentParentItem = SitemapManager.GetContentLocation(item);
+                var contentParentItem = SitemapPageManager.GetContentLocation(item);
                 if (contentParentItem == null) return null;
                 var contentParentItemUrl = HtmlEncode(GetItemUrl(contentParentItem, site));
                 if (string.IsNullOrWhiteSpace(contentParentItemUrl)) return string.Empty;
@@ -68,7 +68,7 @@ namespace Sitemap.XML.Models
 
         public static string GetSharedItemUrl(Item item, SiteContext site)
         {
-            var parentItem = SitemapManager.GetSharedLocationParent(item);
+            var parentItem = SitemapPageManager.GetSharedLocationParent(item);
             var itemUrl = HtmlEncode(GetItemUrl(item, site));
             var parentUrl = HtmlEncode(GetItemUrl(parentItem, site));
             parentUrl = parentUrl.EndsWith("/") ? parentUrl : parentUrl + "/";

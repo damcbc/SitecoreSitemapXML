@@ -19,6 +19,7 @@
  *                                                                         *
  * *********************************************************************** */
 
+using System;
 using System.Web.UI;
 using Sitecore;
 using Sitecore.Buckets.Managers;
@@ -31,10 +32,12 @@ using Sitecore.Data.Items;
 using Sitecore.Diagnostics;
 using Sitecore.Sites;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Xml;
+using Sitecore.Buckets.Extensions;
 
 namespace Sitemap.XML.Models
 {
@@ -58,6 +61,16 @@ namespace Sitemap.XML.Models
             }
         }
 
+        public SitemapManager(SitemapManagerConfiguration config, bool refreshSitemap)
+        {
+            Assert.IsNotNull(config, "config");
+            _config = config;
+            if (refreshSitemap  && !string.IsNullOrWhiteSpace(_config.FileName))
+            {
+                BuildSiteMap();
+            }
+        }
+
         #endregion
 
         #region Properties
@@ -73,29 +86,7 @@ namespace Sitemap.XML.Models
 
         #endregion
 
-        #region Private Methods
-
-        private static IEnumerable<Item> GetSharedContentDefinitions()
-        {
-            var siteNode = GetContextSiteDefinitionItem();
-            if (siteNode == null || string.IsNullOrWhiteSpace(siteNode.Name)) return null;
-
-            var sharedDefinitions = siteNode.Children;
-            return sharedDefinitions;
-        }
-
-        private static Item GetContextSiteDefinitionItem()
-        {
-            var database = Context.Database;
-#if DEBUG
-            database = Factory.GetDatabase("master");
-#endif
-            var sitemapModuleItem = database.GetItem(Constants.SitemapModuleSettingsRootItemId);
-            var contextSite = Context.GetSiteName().ToLower();
-            if (!sitemapModuleItem.Children.Any()) return null;
-            var siteNode = sitemapModuleItem.Children.FirstOrDefault(i => i.Key == contextSite);
-            return siteNode;
-        }
+        
 
         private string BuildSitemapXML(List<SitemapItem> items, Site site)
         {
@@ -177,11 +168,29 @@ namespace Sitemap.XML.Models
             }
         }
 
+        public string GetRootPath(out Item root)
+        {
+            SiteContext siteContext = Factory.GetSite(_config.SiteName);
+
+            string rootPath = siteContext.StartPath;
+            var siteConfig = new SitemapManagerConfiguration(_config.SiteName);
+
+            //overrides the startpath from the root of the site definition
+            if (!string.IsNullOrWhiteSpace(siteConfig.CustomStartPath))
+                rootPath = siteConfig.CustomStartPath;
+
+            var database = Factory.GetDatabase(SitemapManagerConfiguration.WorkingDatabase);
+
+            root = database.GetItem(rootPath);
+            return rootPath;
+        }
+
         private void BuildSiteMap()
         {
             Site site = Sitecore.Sites.SiteManager.GetSite(_config.SiteName);
-            SiteContext siteContext = Factory.GetSite(_config.SiteName);
-            string rootPath = siteContext.StartPath;
+
+            Item root;
+            var rootPath = GetRootPath(out root);
 
             List<SitemapItem> items = GetSitemapItems(rootPath);
 
@@ -191,8 +200,10 @@ namespace Sitemap.XML.Models
             StreamWriter strWriter = new StreamWriter(fullPath, false);
             strWriter.Write(xmlContent);
             strWriter.Close();
-
         }
+
+        
+
 
         private List<SitemapItem> GetSitemapItems(string rootPath)
         {
@@ -202,12 +213,43 @@ namespace Sitemap.XML.Models
 
             Item contentRoot = database.Items[rootPath];
 
+            //Sitemap site configuration item
+            var siteConfig = database.GetItem(_config.SitemapConfigurationItemPath);
+
+            var excludedItems = SitemapPageManager.ExcludedItems();
+            
+
             IEnumerable<Item> descendants;
+            List<Item> descendantsFiltered = new List<Item>();
             Sitecore.Security.Accounts.User user = Sitecore.Security.Accounts.User.FromName(Constants.SitemapParserUser, true);
             using (new Sitecore.Security.Accounts.UserSwitcher(user))
             {
-                descendants = contentRoot.Axes.GetDescendants()
-                    .Where(i => i[Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")] != "1");
+                //gets all the descendants from the root item
+                descendants = contentRoot.Axes.GetDescendants();
+
+                //Possibility of exclude from a configuration field on the items
+                descendants =
+                    descendants.Where(
+                        i =>
+                            i[
+                                Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")] != "1");
+
+                //Global exclude
+                if (excludedItems.Any())
+                {
+                    //filters for only those not excluded
+                    foreach (var descendant in descendants)
+                    {
+                        if (excludedItems.Select(e => e.ID).Contains(descendant.ID) == false)
+                        {
+                            descendantsFiltered.Add(descendant);
+                        }
+                    }
+                }
+                else
+                {
+                    descendantsFiltered = descendants.ToList();
+                }
             }
 
             // getting shared content
@@ -220,34 +262,67 @@ namespace Sitemap.XML.Models
                 if (string.IsNullOrWhiteSpace(sharedDefinition[Constants.SharedContent.ContentLocationFieldName]) ||
                     string.IsNullOrWhiteSpace(sharedDefinition[Constants.SharedContent.ParentItemFieldName]))
                     continue;
-                var contentLocation = ((DatasourceField)sharedDefinition.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem;
-                var parentItem = ((DatasourceField)sharedDefinition.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem;
-                var sharedItems = new List<Item>();
-                if (BucketManager.IsBucket(contentLocation))
-                {
-                    var index = ContentSearchManager.GetIndex(new SitecoreIndexableItem(contentLocation));
-                    using (var searchContext = index.CreateSearchContext())
-                    {
-                        var searchResultItem =
-                            searchContext.GetQueryable<SearchResultItem>()
-                                .Where(item => item.Paths.Contains(contentLocation.ID) && item.ItemId != contentLocation.ID)
-                                .ToList();
-                        sharedItems.AddRange(searchResultItem.Select(i => i.GetItem()));
-                    }
-                }
-                else
-                {
-                    sharedItems.AddRange(contentLocation.Axes.GetDescendants());
-                }
 
-                var cleanedSharedItems = from itm in sharedItems
-                                         where itm.Template != null && enabledTemplates.Select(t => t.ToLower()).Contains(itm.Template.ID.ToString().ToLower())
-                                         select itm;
-                var sharedSitemapItems = cleanedSharedItems.Select(i => new SitemapItem(i, site, parentItem));
-                sharedModels.AddRange(sharedSitemapItems);
+                var parentItem = ((DatasourceField)sharedDefinition.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem;
+                if(parentItem!= null && contentRoot.Axes.GetDescendants().Any(c=> c.ID == parentItem.ID))
+                {
+                    var contentLocation = ((DatasourceField)sharedDefinition.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem;
+                    var sharedItems = new List<Item>();
+                    if (BucketManager.IsBucket(contentLocation))
+                    {
+                        var index = ContentSearchManager.GetIndex(new SitecoreIndexableItem(contentLocation));
+                        using (var searchContext = index.CreateSearchContext())
+                        {
+                            var searchResultItem =
+                                searchContext.GetQueryable<SearchResultItem>()
+                                    .Where(item => item.Paths.Contains(contentLocation.ID) && item.ItemId != contentLocation.ID)
+                                    .ToList();
+                            var result = searchResultItem.Select(i => i.GetItem());
+                            
+                            MultilistField refFields = sharedDefinition.Fields[Constants.SharedContent.Filters];
+                            if (refFields != null && refFields.List != null)
+                            {
+                                var output = new List<Item>();
+                                string urlParamsToParse = refFields.List.ToString();
+                                NameValueCollection nameValueCollection = Sitecore.Web.WebUtil.ParseUrlParameters(urlParamsToParse);
+                                
+                                foreach (var nv in nameValueCollection)
+                                {
+                                    Item filter = database.GetItem(nameValueCollection[nv.ToString()]);
+                                    output = result.Where(x =>
+                                        x.Fields[nv.ToString()] != null &&
+                                        x.Fields[nv.ToString()].Value != String.Empty
+                                        && ((MultilistField) x.Fields[nv.ToString()]) != null
+                                        && ((MultilistField) x.Fields[nv.ToString()]).List != null
+                                        && ((MultilistField) x.Fields[nv.ToString()]).List.Any(
+                                            i => i.ToString() == filter.ID.ToString())).ToList();
+                                    
+                                }
+                                
+                                sharedItems.AddRange(output);
+                            }
+                            else
+                            {
+                                sharedItems.AddRange(result);
+                            }
+                            
+                        }
+                    }
+                    else
+                    {
+                        sharedItems.AddRange(contentLocation.Axes.GetDescendants());
+                    }
+
+                    var cleanedSharedItems = from itm in sharedItems
+                                             where itm.Template != null && enabledTemplates.Select(t => t.ToLower()).Contains(itm.Template.ID.ToString().ToLower())
+                                             select itm;
+                    var sharedSitemapItems = cleanedSharedItems.Select(i => new SitemapItem(i, site, parentItem));
+                    sharedModels.AddRange(sharedSitemapItems);
+                }
+                
             }
 
-            var sitemapItems = descendants.ToList();
+            var sitemapItems = descendantsFiltered;
             sitemapItems.Insert(0, contentRoot);
 
             var selected = from itm in sitemapItems
@@ -272,88 +347,16 @@ namespace Sitemap.XML.Models
             return result;
         }
 
-        #region View Helpers
 
-        public static bool IsUnderContent(Item item)
-        {
-            return Context.Database.GetItem(Context.Site.StartPath).Axes.IsAncestorOf(item);
-        }
-
-        public static bool IsShared(Item item)
-        {
-            var sharedDefinitions = GetSharedContentDefinitions();
-            if (sharedDefinitions == null) return false;
-            var sharedItemContentRoots =
-                sharedDefinitions.Select(i => ((DatasourceField)i.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem).ToList();
-            if (!sharedItemContentRoots.Any()) return false;
-
-            return sharedItemContentRoots.Any(i => i.ID == item.ID);
-        }
-
-        public static bool SitemapDefinitionExists()
-        {
-            var sitemapModuleSettingsItem = Context.Database.GetItem(Constants.SitemapModuleSettingsRootItemId);
-            var siteDefinition = sitemapModuleSettingsItem.Children[Context.Site.Name];
-            return siteDefinition != null;
-        }
-
-        public static Item GetContentLocation(Item item)
-        {
-            var sharedNodes = GetSharedContentDefinitions();
-            var contentParent = sharedNodes
-                .Where(n => ((DatasourceField)n.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem.Axes.IsAncestorOf(item))
-                .Select(n => ((DatasourceField)n.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem)
-                .FirstOrDefault();
-            return contentParent;
-        }
-
-        public static bool IsChildUnderSharedLocation(Item child)
-        {
-            var sharedNodes = GetSharedContentDefinitions();
-            var sharedContentLocations = sharedNodes.Select(n => ((DatasourceField)n.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem);
-            var isUnderShared = sharedContentLocations.Any(l => l.Axes.IsAncestorOf(child));
-            return isUnderShared;
-        }
-
-        public static Item GetSharedLocationParent(Item child)
-        {
-            var sharedNodes = GetSharedContentDefinitions();
-            var parent = sharedNodes
-                .Where(n => ((DatasourceField)n.Fields[Constants.SharedContent.ContentLocationFieldName]).TargetItem.Axes.IsAncestorOf(child))
-                .Select(n => ((DatasourceField)n.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem)
-                .FirstOrDefault();
-            return parent;
-        }
-
-        public static bool IsEnabledTemplate(Item item)
-        {
-            var config = new SitemapManagerConfiguration(Context.GetSiteName());
-            return config.EnabledTemplates.ToLower().Contains(item.TemplateID.ToGuid().ToString());
-        }
-
-        public static bool IsExcludedItem(Item item)
-        {
-            return item[Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")] == "1";
-        }
-
-        public static bool ContainsItemsToShow(IEnumerable<Item> items)
-        {
-            return items == null
-                ? false
-                : items.Any() && items.Any(IsEnabledTemplate) && items.Count(IsExcludedItem) < items.Count();
-        }
-
-        #endregion
-
-        #endregion
+        
 
         #region Public Members
 
         public string BuildSiteMapForHandler()
         {
-            var site = Sitecore.Sites.SiteManager.GetSite(Sitecore.Context.Site.Name);
-            var siteContext = Factory.GetSite(Sitecore.Context.Site.Name);
-            string rootPath = siteContext.StartPath;
+            var site = SiteManager.GetSite(Context.Site.Name);
+            Item root;
+            string rootPath = GetRootPath(out root);
 
             var items = GetSitemapItems(rootPath);
 

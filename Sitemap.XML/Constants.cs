@@ -24,6 +24,11 @@ namespace Sitemap.XML
         {
             public static string ParentItemFieldName = "Parent Item";
             public static string ContentLocationFieldName = "Content Location";
+
+            /// <summary>
+            /// Filter field
+            /// </summary>
+            public static string Filters = "Filters";
         }
 
         public struct WebsiteDefinition
@@ -34,6 +39,7 @@ namespace Sitemap.XML
             public static string FileNameFieldName = "File Name";
             public static string ServerUrlFieldName = "Server Url";
             public static string CleanupBucketPath = "Cleanup Bucket Path";
+            public static string CustomStartPath = "Start Path";
         }
 
         public static string SitemapParserUser = @"extranet\Anonymous";

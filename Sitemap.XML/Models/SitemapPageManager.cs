@@ -11,9 +11,7 @@ namespace Sitemap.XML.Models
 {
     public class SitemapPageManager
     {
-        
-
-        
+        #region Properties
         private static SitemapManagerConfiguration sm;
         private static SitemapManagerConfiguration Config
         {
@@ -49,39 +47,16 @@ namespace Sitemap.XML.Models
             }
         }
 
-        /// <summary>
-        /// List of All excluded Items
-        /// </summary>
-        /// <param name="siteConfig"></param>
-        /// <returns></returns>
-        public static List<Item> ExcludedItems()
-        {
+        #endregion
+        
 
-            var excludedItems = new List<Item>();
-            if (SiteConfig != null)
-            {
-                MultilistField excluded = SiteConfig.Fields[Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")];
-                if (excluded != null)
-                {
-                    //builds list of excluded items
-                    excludedItems = excluded.GetItems().ToList();
-                }
-            }
-
-            return excludedItems;
-        }
+        #region Wildcard
 
         public static List<Item> GetWildCardMapping(Item item)
         {
             //It will look on the shared definitions for items that have the current "item" set as the parent and get the mapping on the children
-            var mappingItems = new List<Item>();
-            //var sharedDefinitions = Db.SelectItems(string.Format("fast:{0}/*", SiteConfig.Paths.FullPath));
-
-            //var x = GetContentLocation(item);
-            //var y = GetSharedLocationParent(item)
-            mappingItems = GetSharedWildCard(item);
-
-            return mappingItems;
+       
+            return  GetSharedWildCard(item);
         }
 
         /// <summary>
@@ -93,6 +68,8 @@ namespace Sitemap.XML.Models
             if (!IsChildWildCardEnabled())
                 return null;
             var wildcardItems = new List<Item>();
+
+            //gets the route determined by the wildcard configuration path
             var route = Context.Database.GetItem(Config.WildcardRoutesPath);
             if (route != null)
             {
@@ -107,10 +84,16 @@ namespace Sitemap.XML.Models
                     }
                 }
             }
+
+            //list with all wildcard configured in sitecore
             return wildcardItems;
         }
 
-
+        /// <summary>
+        /// Validates whether the current item contains a wildcard within it's children
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns></returns>
         public static bool IsChildrenWildcard(Item item)
         {
             if (item == null)
@@ -130,6 +113,35 @@ namespace Sitemap.XML.Models
             return false;
         }
 
+        public static bool IsChildWildCardEnabled()
+        {
+            return Config.HasWildcardItems;
+        }
+
+        public static List<Item> GetSharedWildCard(Item child)
+        {
+            var list = new List<Item>();
+            var sharedNodes = GetSharedContentDefinitions();
+
+            var wildcard = sharedNodes.FirstOrDefault(n => ((DatasourceField)n.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem != null
+            && ((DatasourceField)n.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem.ID.ToString() == child.ID.ToString());
+            if (wildcard != null && wildcard.Fields[Constants.SharedContent.ContentLocationFieldName] != null && wildcard.Fields[Constants.SharedContent.ContentLocationFieldName].Value != "")
+            {
+                var target = (DatasourceField)wildcard.Fields[Constants.SharedContent.ContentLocationFieldName];
+                if (target != null && target.TargetItem != null)
+                {
+                    foreach (Item children in target.TargetItem.Children)
+                    {
+                        list.Add(children);
+                    }
+                }
+            }
+
+            return list;
+        }
+
+
+        #endregion
 
         #region Private Methods
 
@@ -157,6 +169,28 @@ namespace Sitemap.XML.Models
 
         #endregion
 
+        /// <summary>
+        /// List of All excluded Items
+        /// </summary>
+        /// <param name="siteConfig"></param>
+        /// <returns></returns>
+        public static List<Item> ExcludedItems()
+        {
+
+            var excludedItems = new List<Item>();
+            if (SiteConfig != null)
+            {
+                MultilistField excluded = SiteConfig.Fields[Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")];
+                if (excluded != null)
+                {
+                    //builds list of excluded items
+                    excludedItems = excluded.GetItems().ToList();
+                }
+            }
+
+            return excludedItems;
+        }
+
         public static bool IsUnderContent(Item item)
         {
             return Context.Database.GetItem(Context.Site.StartPath).Axes.IsAncestorOf(item);
@@ -174,10 +208,7 @@ namespace Sitemap.XML.Models
             return sharedItemContentRoots.Where(i => i != null).Any(i => i.ID == item.ID);
         }
 
-        public static bool IsChildWildCardEnabled()
-        {
-            return Config.HasWildcardItems;
-        }
+       
 
         public static bool SitemapDefinitionExists()
         {
@@ -214,27 +245,7 @@ namespace Sitemap.XML.Models
             return parent;
         }
 
-        public static List<Item> GetSharedWildCard(Item child)
-        {
-            var list = new List<Item>();
-            var sharedNodes = GetSharedContentDefinitions();
-            
-            var wildcard = sharedNodes.FirstOrDefault(n => ((DatasourceField)n.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem != null 
-            && ((DatasourceField)n.Fields[Constants.SharedContent.ParentItemFieldName]).TargetItem.ID.ToString() == child.ID.ToString());
-            if (wildcard != null && wildcard.Fields[Constants.SharedContent.ContentLocationFieldName] != null && wildcard.Fields[Constants.SharedContent.ContentLocationFieldName].Value != "")
-            {
-                var target = (DatasourceField) wildcard.Fields[Constants.SharedContent.ContentLocationFieldName];
-                if (target != null && target.TargetItem != null)
-                {
-                    foreach (Item children in target.TargetItem.Children)
-                    {
-                        list.Add(children);
-                    }
-                }
-            }
-
-            return list;
-        }
+        
 
         public static bool IsEnabledTemplate(Item item)
         {

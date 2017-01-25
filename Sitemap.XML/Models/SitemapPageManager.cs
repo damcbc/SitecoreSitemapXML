@@ -32,7 +32,7 @@ namespace Sitemap.XML.Models
                 if (siteConfig == null)
                 {
                     var database = Factory.GetDatabase(SitemapManagerConfiguration.WorkingDatabase);
-                    database.GetItem(Config.SitemapConfigurationItemPath);
+                    siteConfig = database.GetItem(Config.SitemapConfigurationItemPath);
                 }
                 return siteConfig;
             }
@@ -174,12 +174,13 @@ namespace Sitemap.XML.Models
         /// </summary>
         /// <param name="siteConfig"></param>
         /// <returns></returns>
-        public static List<Item> ExcludedItems()
+        public static List<Item> ExcludedItems(Item config)
         {
 
             var excludedItems = new List<Item>();
-            if (SiteConfig != null)
+            if (config != null)
             {
+                siteConfig = config;
                 MultilistField excluded = SiteConfig.Fields[Settings.GetSetting("Sitemap.XML.Fields.ExcludeItemFromSitemap", "Exclude From Sitemap")];
                 if (excluded != null)
                 {
@@ -190,6 +191,7 @@ namespace Sitemap.XML.Models
 
             return excludedItems;
         }
+
 
         public static bool IsUnderContent(Item item)
         {
@@ -265,7 +267,7 @@ namespace Sitemap.XML.Models
             }
 
             //global exclude
-            var excludedItems = ExcludedItems();
+            var excludedItems = ExcludedItems(null);
             if (excludedItems.Any())
             {
                 //filters for only those not excluded

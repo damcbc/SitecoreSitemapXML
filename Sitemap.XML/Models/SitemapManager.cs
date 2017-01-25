@@ -216,7 +216,7 @@ namespace Sitemap.XML.Models
             //Sitemap site configuration item
             var siteConfig = database.GetItem(_config.SitemapConfigurationItemPath);
 
-            var excludedItems = SitemapPageManager.ExcludedItems();
+            var excludedItems = SitemapPageManager.ExcludedItems(siteConfig);
             
 
             IEnumerable<Item> descendants;

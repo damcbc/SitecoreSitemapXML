@@ -19,6 +19,7 @@
  *                                                                         *
  * *********************************************************************** */
 
+using System;
 using System.Web;
 using System.Xml;
 using Sitecore.Configuration;
@@ -67,20 +68,25 @@ namespace Sitemap.XML.Models
             }
         }
 
+        private string sitemapPath { get; set; }
         public string SitemapConfigurationItemPath
         {
             get
             {
-                var site = Factory.GetSite(SiteName); // GetSite(SiteName);
-                var sitemapPath = site.Properties["sitemapPath"];
-                if (string.IsNullOrWhiteSpace(sitemapPath))
+                if (String.IsNullOrWhiteSpace(sitemapPath))
                 {
-                    return GetValueByName("sitemapConfigurationItemPath") + SiteName;
+                    var site = Factory.GetSite(SiteName); // GetSite(SiteName);
+                    sitemapPath = site.Properties["sitemapPath"];
+                    if (string.IsNullOrWhiteSpace(sitemapPath))
+                    {
+                        if (site.Name == "publisher")
+                            sitemapPath = GetValueByName("sitemapConfigurationItemPath");
+                        else
+                            sitemapPath = GetValueByName("sitemapConfigurationItemPath") + SiteName;
+                    }
                 }
-                else
-                {
-                    return sitemapPath;
-                }
+                return sitemapPath;
+
             }
         }
 
